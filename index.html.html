@@ -428,7 +428,6 @@
                             <option value="L">Large (L)</option>
                             <option value="XL">Extra Large (XL)</option>
                             <option value="XXL">Double Extra Large (XXL)</option>
-                            <option value="XXXL">Triple Extra Large (XXXL)</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -465,20 +464,19 @@
                     <div class="bank-details">
                         <div class="bank-detail">
                             <strong>Bank Name:</strong><br>
-                            METROBANK - Anda Circle-Port Area Branch, Manila
+                            Knights of Rizal Bank
                         </div>
                         <div class="bank-detail">
                             <strong>Account Name:</strong><br>
-                            ORDER OF THE KNIGHTS OF RIZAL
+                            NRYLI 2025 Registration
                         </div>
                         <div class="bank-detail">
                             <strong>Account Number:</strong><br>
-                            151-3-15151338-8
+                            1234-5678-9012-3456
                         </div>
                         <div class="bank-detail">
                             <strong>Registration Fee:</strong><br>
-                            PHP 7,000.00 (Regular Rate)
-			    PHP 6,500.00 (Early Bird Rate until 30 Oct 2025)
+                            PHP 2,500.00
                         </div>
                     </div>
                 </div>
@@ -565,7 +563,17 @@
         </div>
     </div>
 
+    <!-- Supabase JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
     <script>
+        // Supabase configuration - REPLACE WITH YOUR ACTUAL VALUES
+        const SUPABASE_URL = 'YOUR_SUPABASE_URL_HERE';
+        const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY_HERE';
+        
+        // Initialize Supabase client
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        
         let currentPage = 1;
         const totalPages = 4;
         const formData = {};
@@ -686,25 +694,98 @@
             return 'NRYLI2025-' + Date.now().toString().slice(-8);
         }
 
-        function submitForm() {
+        async function submitForm() {
             saveCurrentPageData();
             
-            // Generate registration ID
-            const registrationId = generateRegistrationId();
-            document.getElementById('registrationId').textContent = registrationId;
+            // Show loading state
+            const submitBtn = document.querySelector('button[onclick="submitForm()"]');
+            const originalText = submitBtn.textContent;
+            submitBtn.textContent = 'Submitting...';
+            submitBtn.disabled = true;
             
-            // Show confirmation page
-            document.querySelectorAll('.page').forEach(page => {
-                page.classList.remove('active');
-            });
-            document.getElementById('confirmationPage').classList.add('active');
-            
-            // Update progress to 100%
-            document.getElementById('progressFill').style.width = '100%';
-            
-            // Here you would typically send the data to your server
-            console.log('Form Data:', formData);
-            console.log('Registration ID:', registrationId);
+            try {
+                // Generate registration ID
+                const registrationId = generateRegistrationId();
+                
+                // Upload file to Supabase Storage (if file exists)
+                let paymentProofUrl = '';
+                const fileInput = document.getElementById('paymentProof');
+                if (fileInput.files[0]) {
+                    const file = fileInput.files[0];
+                    const fileName = `${registrationId}_${file.name}`;
+                    
+                    const { data: uploadData, error: uploadError } = await supabase.storage
+                        .from('payment-proofs')
+                        .upload(fileName, file);
+                    
+                    if (uploadError) {
+                        console.error('File upload error:', uploadError);
+                        // Continue without file if upload fails
+                    } else {
+                        // Get public URL
+                        const { data: urlData } = supabase.storage
+                            .from('payment-proofs')
+                            .getPublicUrl(fileName);
+                        paymentProofUrl = urlData.publicUrl;
+                    }
+                }
+                
+                // Prepare data for database
+                const registrationData = {
+                    delegate_type: formData.delegateType,
+                    surname: formData.surname,
+                    first_name: formData.firstName,
+                    middle_initial: formData.middleInitial || null,
+                    institution: formData.institution,
+                    institution_address: formData.institutionAddress,
+                    institution_contact: formData.institutionContact,
+                    institution_email: formData.institutionEmail,
+                    region_cluster: formData.regionCluster,
+                    delegate_contact: formData.delegateContact,
+                    delegate_email: formData.delegateEmail,
+                    age: parseInt(formData.age),
+                    tshirt_size: formData.tshirtSize,
+                    dietary_preferences: formData.dietaryPreferences || 'None',
+                    dietary_comments: formData.dietaryComments || null,
+                    payment_option: formData.paymentOption,
+                    payment_proof_url: paymentProofUrl,
+                    transaction_ref: formData.transactionRef || null,
+                    registration_id: registrationId,
+                    status: 'pending'
+                };
+                
+                // Insert data into Supabase
+                const { data, error } = await supabase
+                    .from('nryli_registrations')
+                    .insert([registrationData])
+                    .select();
+                
+                if (error) {
+                    throw error;
+                }
+                
+                // Success - show confirmation
+                document.getElementById('registrationId').textContent = registrationId;
+                
+                // Show confirmation page
+                document.querySelectorAll('.page').forEach(page => {
+                    page.classList.remove('active');
+                });
+                document.getElementById('confirmationPage').classList.add('active');
+                
+                // Update progress to 100%
+                document.getElementById('progressFill').style.width = '100%';
+                
+                console.log('Registration successful:', data);
+                
+            } catch (error) {
+                console.error('Submission error:', error);
+                alert('There was an error submitting your registration. Please try again.');
+                
+                // Reset button
+                submitBtn.textContent = originalText;
+                submitBtn.disabled = false;
+            }
         }
 
         // File upload handling
